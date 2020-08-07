@@ -3,6 +3,7 @@ import torch
 import cv2
 from torchvision import transforms
 import numpy as np
+from data.utils import convert_to_square
 
 
 mean_vals = [0.471, 0.448, 0.408]
@@ -105,16 +106,12 @@ class ONet(nn.Module):
         out = out.view(N, -1)
         out = self.linear1(out)
         out = self.relu(out)
-        out_a = self.linear2_1(out)
-        out_a = self.softmax2_1(out_a) #cls
-        out_b = self.linear2_2(out) #box
-        out_c = self.linear2_3(out) #point
+        cls = self.linear2_1(out)
+        cls_pro = self.softmax2_1(cls) #cls
+        reg = self.linear2_2(out) #box
+        landmark = self.linear2_3(out) #point
 
-        return out_a, out_b, out_c
-
-class MTCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
+        return cls, reg, cls_pro, landmark
 
 class ClS_Loss(nn.Module):
     def __init__(self, device):
@@ -274,6 +271,238 @@ class PNet_Detect(nn.Module):
                                  reg])
         # shape[n,9]
         return boundingbox.transpose()
+
+class RNet_Detect(nn.Module):
+    def __init__(self, rnet, device):
+        super().__init__()
+        self.rnet = rnet.to(device)
+        self.device = device
+
+    def forward(self, img_path, dets):
+        img = cv2.imread(img_path)
+        h, w, c = img.shape
+        # 将pnet的box变成包含它的正方形，可以避免信息损失
+        dets = convert_to_square(dets)
+        dets[:, 0:4] = np.round(dets[:, 0:4])
+
+        # 调整超出图像的box
+        [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph] = pad(dets, w, h)
+        num_boxes = dets.shape[0]
+
+        cropped_ims_tensors = []
+        for i in range(num_boxes):
+            if tmph[i] > 0 and tmpw[i] > 0:
+                tmp = np.zeros((tmph[i], tmpw[i], 3), dtype=np.uint8)
+                tmp[dy[i]:edy[i] + 1, dx[i]:edx[i] + 1, :] = img[y[i]:ey[i] + 1, x[i]:ex[i] + 1, :]
+                crop_im = cv2.resize(tmp, (24, 24))
+                crop_im_tensor = transforms.ToTensor()(crop_im)
+                crop_im_tensor = transforms.Normalize(mean=mean_vals, std=std_vals)(crop_im_tensor)
+                # cropped_ims_tensors[i, :, :, :] = crop_im_tensor
+                cropped_ims_tensors.append(crop_im_tensor)
+
+        if len(cropped_ims_tensors) == 0:
+            return None,None
+
+        feed_imgs = torch.stack(cropped_ims_tensors).to(self.device)
+
+        # 生成的大批量数据会导致显存溢出，整理为小批量数据预测
+        minibatch = []
+        minibatch_size = 50
+        pred_cls_arr = []
+        pred_reg_arr = []
+        pred_cls_pro_arr = []
+        cur = 0
+        n = feed_imgs.shape[0]
+        while cur < n:
+            minibatch.append(feed_imgs[cur:min(cur + minibatch_size, n),:,:,:])
+            cur += minibatch_size
+
+        for imgs in minibatch:
+            pred_cls, pred_reg, pred_cls_pro = self.rnet(imgs)
+            pred_cls = pred_cls.cpu().detach().numpy()
+            pred_cls_pro = pred_cls_pro.cpu().detach().numpy()
+            pred_reg = pred_reg.cpu().detach().numpy()
+
+            pred_cls_arr.append(pred_cls)
+            pred_reg_arr.append(pred_reg)
+            pred_cls_pro_arr.append(pred_cls_pro)
+
+        # list拼接为nparray类型
+        pred_cls_np = np.concatenate(pred_cls_arr, axis=0)
+        pred_reg_np = np.concatenate(pred_reg_arr, axis=0)
+        pred_cls_pro_np = np.concatenate(pred_cls_pro_arr, axis=0)
+        keep = np.where(pred_cls_pro_np[:, 1] > 0.7)[0]
+
+        if len(keep) == 0:
+            return None,None
+
+        dets = dets[keep]
+        pred_cls_keep = pred_cls_np[keep]
+        pred_cls_pro_keep = pred_cls_pro_np[keep]
+        pred_reg_keep = pred_reg_np[keep]
+
+        keep = nms(dets, 0.7)
+        if len(keep) == 0:
+            return None, None
+
+        dets = dets[keep]
+        pred_cls_keep = pred_cls_keep[keep]
+        pred_cls_pro_keep = pred_cls_pro_keep[keep]
+        pred_reg_keep = pred_reg_keep[keep]
+
+        # box的长宽
+        bbw = dets[:, 2] - dets[:, 0] + 1
+        bbh = dets[:, 3] - dets[:, 1] + 1
+        # 对应原图的box坐标和分数
+        boxes_c = np.vstack([dets[:, 0] + pred_reg_keep[:, 0] * bbw,
+                             dets[:, 1] + pred_reg_keep[:, 1] * bbh,
+                             dets[:, 2] + pred_reg_keep[:, 2]* bbw,
+                             dets[:, 3] + pred_reg_keep[:, 3] * bbh,
+                             pred_cls_pro_keep[:, 1]])
+        boxes_c = boxes_c.transpose()
+        return dets, boxes_c
+
+class ONet_Detect(nn.Module):
+    def __init__(self, onet, device):
+        super().__init__()
+        self.onet = onet.to(device)
+        self.device = device
+
+    def forward(self, img_path, dets):
+        img = cv2.imread(img_path)
+        h, w, c = img.shape
+        # 将pnet的box变成包含它的正方形，可以避免信息损失
+        dets = convert_to_square(dets)
+        dets[:, 0:4] = np.round(dets[:, 0:4])
+
+        # 调整超出图像的box
+        [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph] = pad(dets, w, h)
+        num_boxes = dets.shape[0]
+
+        cropped_ims_tensors = []
+        for i in range(num_boxes):
+            if tmph[i] > 0 and tmpw[i] > 0:
+                tmp = np.zeros((tmph[i], tmpw[i], 3), dtype=np.uint8)
+                tmp[dy[i]:edy[i] + 1, dx[i]:edx[i] + 1, :] = img[y[i]:ey[i] + 1, x[i]:ex[i] + 1, :]
+                crop_im = cv2.resize(tmp, (48, 48))
+                crop_im_tensor = transforms.ToTensor()(crop_im)
+                crop_im_tensor = transforms.Normalize(mean=mean_vals, std=std_vals)(crop_im_tensor)
+                # cropped_ims_tensors[i, :, :, :] = crop_im_tensor
+                cropped_ims_tensors.append(crop_im_tensor)
+
+        if len(cropped_ims_tensors) == 0:
+            return None,None
+
+        feed_imgs = torch.stack(cropped_ims_tensors).to(self.device)
+
+        # 生成的大批量数据会导致显存溢出，整理为小批量数据预测
+        minibatch = []
+        minibatch_size = 50
+        pred_cls_arr = []
+        pred_reg_arr = []
+        pred_cls_pro_arr = []
+        cur = 0
+        n = feed_imgs.shape[0]
+        while cur < n:
+            minibatch.append(feed_imgs[cur:min(cur + minibatch_size, n),:,:,:])
+            cur += minibatch_size
+
+        for imgs in minibatch:
+            pred_cls, pred_reg, pred_cls_pro = self.rnet(imgs)
+            pred_cls = pred_cls.cpu().detach().numpy()
+            pred_cls_pro = pred_cls_pro.cpu().detach().numpy()
+            pred_reg = pred_reg.cpu().detach().numpy()
+
+            pred_cls_arr.append(pred_cls)
+            pred_reg_arr.append(pred_reg)
+            pred_cls_pro_arr.append(pred_cls_pro)
+
+        # list拼接为nparray类型
+        pred_cls_np = np.concatenate(pred_cls_arr, axis=0)
+        pred_reg_np = np.concatenate(pred_reg_arr, axis=0)
+        pred_cls_pro_np = np.concatenate(pred_cls_pro_arr, axis=0)
+        keep = np.where(pred_cls_pro_np[:, 1] > 0.7)[0]
+
+        if len(keep) == 0:
+            return None,None
+
+        dets = dets[keep]
+        pred_cls_keep = pred_cls_np[keep]
+        pred_cls_pro_keep = pred_cls_pro_np[keep]
+        pred_reg_keep = pred_reg_np[keep]
+
+        keep = nms(dets, 0.7)
+        if len(keep) == 0:
+            return None, None
+
+        dets = dets[keep]
+        pred_cls_keep = pred_cls_keep[keep]
+        pred_cls_pro_keep = pred_cls_pro_keep[keep]
+        pred_reg_keep = pred_reg_keep[keep]
+
+        # box的长宽
+        bbw = dets[:, 2] - dets[:, 0] + 1
+        bbh = dets[:, 3] - dets[:, 1] + 1
+        # 对应原图的box坐标和分数
+        boxes_c = np.vstack([dets[:, 0] + pred_reg_keep[:, 0] * bbw,
+                             dets[:, 1] + pred_reg_keep[:, 1] * bbh,
+                             dets[:, 2] + pred_reg_keep[:, 2]* bbw,
+                             dets[:, 3] + pred_reg_keep[:, 3] * bbh,
+                             pred_cls_pro_keep[:, 1]])
+        boxes_c = boxes_c.transpose()
+        return dets, boxes_c
+
+def pad(bboxes, w, h):
+            """
+                pad the the boxes
+            Parameters:
+            ----------
+                bboxes: numpy array, n x 5, input bboxes
+                w: float number, width of the input image
+                h: float number, height of the input image
+            Returns :
+            ------
+                dy, dx : numpy array, n x 1, start point of the bbox in target image
+                edy, edx : numpy array, n x 1, end point of the bbox in target image
+                y, x : numpy array, n x 1, start point of the bbox in original image
+                ey, ex : numpy array, n x 1, end point of the bbox in original image
+                tmph, tmpw: numpy array, n x 1, height and width of the bbox
+            """
+
+            tmpw = (bboxes[:, 2] - bboxes[:, 0] + 1).astype(np.int32)
+            tmph = (bboxes[:, 3] - bboxes[:, 1] + 1).astype(np.int32)
+            numbox = bboxes.shape[0]
+
+            dx = np.zeros((numbox,))
+            dy = np.zeros((numbox,))
+            edx, edy = tmpw.copy() - 1, tmph.copy() - 1
+
+            x, y, ex, ey = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+
+            tmp_index = np.where(ex > w - 1)
+            if len(tmp_index[0]) > 0:
+                edx[tmp_index] = tmpw[tmp_index] + w - 2 - ex[tmp_index]
+                ex[tmp_index] = w - 1
+
+            tmp_index = np.where(ey > h - 1)
+            if len(tmp_index[0]) > 0:
+                edy[tmp_index] = tmph[tmp_index] + h - 2 - ey[tmp_index]
+                ey[tmp_index] = h - 1
+
+            tmp_index = np.where(x < 0)
+            if len(tmp_index[0]) > 0:
+                dx[tmp_index] = 0 - x[tmp_index]
+                x[tmp_index] = 0
+
+            tmp_index = np.where(y < 0)
+            if len(tmp_index[0]) > 0:
+                dy[tmp_index] = 0 - y[tmp_index]
+                y[tmp_index] = 0
+
+            return_list = [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph]
+            return_list = [item.astype(np.int32) for item in return_list]
+
+            return return_list
 
 def nms(dets, thresh):
         '''剔除太相似的box'''

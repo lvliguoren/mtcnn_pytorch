@@ -202,3 +202,19 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+.gitignore
+.idea/inspectionProfiles/
+.idea/misc.xml
+.idea/modules.xml
+.idea/mtcnn_pytorch.iml
+data/__init__.py
+data/dataset.py
+data/get_rnet_train_data.py
+data/utils.py
+index.py
+model/__init__.py
+model/mtcnn.py
+model/pnet.pth
+model/rnet.pth
+train/
+utils/

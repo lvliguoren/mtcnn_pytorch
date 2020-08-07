@@ -1,10 +1,13 @@
 import numpy as np
 
-a = list(np.array([1,2,3,4]))
-b = np.array([5,6,7])
-c = []
-
-c.extend(a)
-# c.extend(b)
-
-print(c)
+m = 3
+batch_size = 20
+if m < batch_size:
+    keep_inds = np.arange(m)
+    gap = batch_size - m
+    while gap >= len(keep_inds):
+        gap -= len(keep_inds)
+        keep_inds = np.concatenate((keep_inds, keep_inds))
+    if gap != 0:
+        keep_inds = np.concatenate((keep_inds, keep_inds[:gap]))
+print(keep_inds)

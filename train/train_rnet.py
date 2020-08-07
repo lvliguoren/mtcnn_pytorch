@@ -9,18 +9,19 @@ rnet_dataset = WiderDataSet(data_dir='E:/TEST/MTCNN_DATA/24', pos_path='pos_24.t
 rnet_dataloader = DataLoader(rnet_dataset, batch_size=512, shuffle=True)
 
 rnet = RNet().to(device)
-optimizer = torch.optim.Adam(rnet.parameters(), lr=1e-5)
+optimizer = torch.optim.Adam(rnet.parameters(), lr=1e-3)
 critetion_cls = ClS_Loss(device)
 critetion_reg = Reg_Loss(device)
 
 def main():
+    rnet.train()
     for batch_idx, (img, label, bbox_target, landmark_target) in enumerate(rnet_dataloader):
         img = img.to(device)
         label = label.to(device)
         bbox_target = bbox_target.to(device)
 
         pred_cls, pred_reg, pred_cls_pro = rnet(img)
-        cls_loss, accuracy, precision, recall = critetion_cls(pred_cls, label)
+        cls_loss, accuracy, precision, recall = critetion_cls(pred_cls, label, pred_cls_pro)
         reg_loss = critetion_reg(pred_reg, label, bbox_target)
 
         loss = cls_loss + reg_loss * 0.5
