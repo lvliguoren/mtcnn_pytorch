@@ -408,7 +408,7 @@ class ONet_Detect(nn.Module):
             cur += minibatch_size
 
         for imgs in minibatch:
-            pred_cls, pred_reg, pred_cls_pro = self.rnet(imgs)
+            pred_cls, pred_reg, pred_cls_pro, landmark = self.onet(imgs)
             pred_cls = pred_cls.cpu().detach().numpy()
             pred_cls_pro = pred_cls_pro.cpu().detach().numpy()
             pred_reg = pred_reg.cpu().detach().numpy()
@@ -431,7 +431,7 @@ class ONet_Detect(nn.Module):
         pred_cls_pro_keep = pred_cls_pro_np[keep]
         pred_reg_keep = pred_reg_np[keep]
 
-        keep = nms(dets, 0.7)
+        keep = nms(dets, 0.3)
         if len(keep) == 0:
             return None, None
 

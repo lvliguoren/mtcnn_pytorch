@@ -36,10 +36,10 @@ def main(img_path, pnet_path, rnet_path, onet_path):
         return
 
     img = cv2.imread(img_path)
-    for i in enumerate(boxes_align.shape[0]):
+    for i in range(boxes_align.shape[0]):
         # 画人脸框
-        cv2.rectangle(img, (boxes_align[i, 0], boxes_align[i, 1]), (boxes_align[i, 2], boxes_align[i, 3]), (255, 0, 0), 1)
-        cv2.putText(img,'{:.2f}'.format(boxes_align[i, 4]), (boxes_align[i, 0], boxes_align[i, 1] - 2),
+        cv2.rectangle(img, (int(boxes_align[i, 0]), int(boxes_align[i, 1])), (int(boxes_align[i, 2]), int(boxes_align[i, 3])), (255, 0, 0), 1)
+        cv2.putText(img,'{:.2f}'.format(boxes_align[i, 4]), (int(boxes_align[i, 0]), int(boxes_align[i, 1]) - 2),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
     cv2.imshow('img', img)
@@ -48,6 +48,6 @@ def main(img_path, pnet_path, rnet_path, onet_path):
 
 
 if __name__ == '__main__':
-    main('', 'model/pnet.pth', 'model/rnet.pth', 'model/onet.pth')
+    main('E:\TEST\MTCNN_DATA\WIDER_train\images\8--Election_Campain\8_Election_Campain_Election_Campaign_8_205.jpg', 'model/pnet.pth', 'model/rnet.pth', 'model/onet.pth')
 
 
