@@ -216,7 +216,6 @@ model/__init__.py
 model/mtcnn.py
 model/pnet.pth
 model/rnet.pth
-train/
 utils/
 .idea/vcs.xml
 model/onet.pth

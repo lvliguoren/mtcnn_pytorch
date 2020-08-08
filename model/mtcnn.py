@@ -453,7 +453,7 @@ class ONet_Detect(nn.Module):
         return dets, boxes_c
 
 def pad(bboxes, w, h):
-            """
+    """
                 pad the the boxes
             Parameters:
             ----------
@@ -469,40 +469,40 @@ def pad(bboxes, w, h):
                 tmph, tmpw: numpy array, n x 1, height and width of the bbox
             """
 
-            tmpw = (bboxes[:, 2] - bboxes[:, 0] + 1).astype(np.int32)
-            tmph = (bboxes[:, 3] - bboxes[:, 1] + 1).astype(np.int32)
-            numbox = bboxes.shape[0]
+    tmpw = (bboxes[:, 2] - bboxes[:, 0] + 1).astype(np.int32)
+    tmph = (bboxes[:, 3] - bboxes[:, 1] + 1).astype(np.int32)
+    numbox = bboxes.shape[0]
 
-            dx = np.zeros((numbox,))
-            dy = np.zeros((numbox,))
-            edx, edy = tmpw.copy() - 1, tmph.copy() - 1
+    dx = np.zeros((numbox,))
+    dy = np.zeros((numbox,))
+    edx, edy = tmpw.copy() - 1, tmph.copy() - 1
 
-            x, y, ex, ey = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+    x, y, ex, ey = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
 
-            tmp_index = np.where(ex > w - 1)
-            if len(tmp_index[0]) > 0:
+    tmp_index = np.where(ex > w - 1)
+    if len(tmp_index[0]) > 0:
                 edx[tmp_index] = tmpw[tmp_index] + w - 2 - ex[tmp_index]
                 ex[tmp_index] = w - 1
 
-            tmp_index = np.where(ey > h - 1)
-            if len(tmp_index[0]) > 0:
+    tmp_index = np.where(ey > h - 1)
+    if len(tmp_index[0]) > 0:
                 edy[tmp_index] = tmph[tmp_index] + h - 2 - ey[tmp_index]
                 ey[tmp_index] = h - 1
 
-            tmp_index = np.where(x < 0)
-            if len(tmp_index[0]) > 0:
+    tmp_index = np.where(x < 0)
+    if len(tmp_index[0]) > 0:
                 dx[tmp_index] = 0 - x[tmp_index]
                 x[tmp_index] = 0
 
-            tmp_index = np.where(y < 0)
-            if len(tmp_index[0]) > 0:
+    tmp_index = np.where(y < 0)
+    if len(tmp_index[0]) > 0:
                 dy[tmp_index] = 0 - y[tmp_index]
                 y[tmp_index] = 0
 
-            return_list = [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph]
-            return_list = [item.astype(np.int32) for item in return_list]
+    return_list = [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph]
+    return_list = [item.astype(np.int32) for item in return_list]
 
-            return return_list
+    return return_list
 
 def nms(dets, thresh):
         '''剔除太相似的box'''
